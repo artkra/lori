@@ -2,13 +2,39 @@ package main
 
 import (
 	"bufio"
+	"io"
 	"log"
 	"net"
 	"strings"
+	"time"
 )
 
 type Server struct {
-	Addr string
+	Addr          string
+	IdleTimeout   time.Duration
+	MaxReadBuffer int64
+}
+
+type Conn struct {
+	net.Conn
+	IdleTimeout   time.Duration
+	MaxReadBuffer int64
+}
+
+func (c *Conn) Write(p []byte) (int, error) {
+	c.UpdateDeadline()
+	return c.Conn.Write(p)
+}
+
+func (c *Conn) Read(b []byte) (int, error) {
+	c.UpdateDeadline()
+	r := io.LimitReader(c.Conn, c.MaxReadBuffer)
+	return r.Read(b)
+}
+
+func (c *Conn) UpdateDeadline() {
+	idleDeadline := time.Now().Add(c.IdleTimeout)
+	c.Conn.SetDeadline(idleDeadline)
 }
 
 func (srv Server) ListenAndServe() error {
@@ -26,17 +52,23 @@ func (srv Server) ListenAndServe() error {
 	defer listener.Close()
 
 	for {
-		conn, err := listener.Accept()
+		newConn, err := listener.Accept()
 		if err != nil {
 			log.Printf("--- error accepting connection %v\n", err)
 			continue
 		}
+		conn := &Conn{
+			Conn:          newConn,
+			IdleTimeout:   srv.IdleTimeout,
+			MaxReadBuffer: srv.MaxReadBuffer,
+		}
+		conn.SetDeadline(time.Now().Add(conn.IdleTimeout))
 		log.Printf("+++ accepted connection from %v\n", conn.RemoteAddr())
 		go handle(conn)
 	}
 }
 
-func handle(conn net.Conn) error {
+func handle(conn *Conn) error {
 	defer func() {
 		log.Printf("~ closing connection from %v\n", conn.RemoteAddr())
 		conn.Close()
@@ -65,6 +97,9 @@ func handle(conn net.Conn) error {
 }
 
 func main() {
-	server := Server{}
+	server := Server{
+		IdleTimeout:   10 * time.Second,
+		MaxReadBuffer: 2,
+	}
 	server.ListenAndServe()
 }
