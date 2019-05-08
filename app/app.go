@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"io"
 	"log"
+	"lori/lserver"
 	"net"
 	"strings"
 	"time"
@@ -13,12 +14,14 @@ type Server struct {
 	Addr          string
 	IdleTimeout   time.Duration
 	MaxReadBuffer int64
+	Dispatch      map[int]int
 }
 
 type Conn struct {
 	net.Conn
 	IdleTimeout   time.Duration
 	MaxReadBuffer int64
+	Dispatch      *map[int]int
 }
 
 func (c *Conn) Write(p []byte) (int, error) {
@@ -29,6 +32,7 @@ func (c *Conn) Write(p []byte) (int, error) {
 func (c *Conn) Read(b []byte) (int, error) {
 	c.UpdateDeadline()
 	r := io.LimitReader(c.Conn, c.MaxReadBuffer)
+	log.Println((*c.Dispatch)[1])
 	return r.Read(b)
 }
 
@@ -61,6 +65,7 @@ func (srv Server) ListenAndServe() error {
 			Conn:          newConn,
 			IdleTimeout:   srv.IdleTimeout,
 			MaxReadBuffer: srv.MaxReadBuffer,
+			Dispatch:      &srv.Dispatch,
 		}
 		conn.SetDeadline(time.Now().Add(conn.IdleTimeout))
 		log.Printf("+++ accepted connection from %v\n", conn.RemoteAddr())
@@ -99,7 +104,12 @@ func handle(conn *Conn) error {
 func main() {
 	server := Server{
 		IdleTimeout:   10 * time.Second,
-		MaxReadBuffer: 2,
+		MaxReadBuffer: 1024,
+		Dispatch:      make(map[int]int, 1000),
 	}
+
+	lserver.Shout()
+	lserver.QShout()
+
 	server.ListenAndServe()
 }
