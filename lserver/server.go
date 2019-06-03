@@ -2,6 +2,8 @@ package lserver
 
 import (
 	"bufio"
+	"bytes"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -9,18 +11,23 @@ import (
 	"time"
 )
 
+const (
+	beginToken = "+++idspispopd_____"
+	endToken   = "_____idspispopd+++"
+)
+
 type Server struct {
 	Addr          string
 	IdleTimeout   time.Duration
 	MaxReadBuffer int64
-	Dispatch      map[int]int
+	dispatcher    Dispatcher
 }
 
 type Conn struct {
 	net.Conn
 	IdleTimeout   time.Duration
 	MaxReadBuffer int64
-	Dispatch      *map[int]int
+	dispatcher    *Dispatcher
 }
 
 func (c *Conn) Write(p []byte) (int, error) {
@@ -31,7 +38,6 @@ func (c *Conn) Write(p []byte) (int, error) {
 func (c *Conn) Read(b []byte) (int, error) {
 	c.UpdateDeadline()
 	r := io.LimitReader(c.Conn, c.MaxReadBuffer)
-	log.Println((*c.Dispatch)[0])
 	return r.Read(b)
 }
 
@@ -40,12 +46,30 @@ func (c *Conn) UpdateDeadline() {
 	c.Conn.SetDeadline(idleDeadline)
 }
 
+func NewLServer(t time.Duration, m int64) *Server {
+	router := make(map[string]*Conn)
+	dispatcher := Dispatcher{
+		Router: &router,
+	}
+	return &Server{
+		Addr:          ":15070",
+		IdleTimeout:   t * time.Second,
+		MaxReadBuffer: m,
+		dispatcher:    dispatcher,
+	}
+}
+
 func (srv Server) ListenAndServe() error {
+	router := make(map[string]*Conn)
+
+	dispatcher := Dispatcher{
+		Router: &router,
+	}
+
+	srv.dispatcher = dispatcher
+
 	addr := srv.Addr
 
-	if addr == "" {
-		addr = ":8000"
-	}
 	log.Printf("Starting server on %v\n", addr)
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -64,7 +88,7 @@ func (srv Server) ListenAndServe() error {
 			Conn:          newConn,
 			IdleTimeout:   srv.IdleTimeout,
 			MaxReadBuffer: srv.MaxReadBuffer,
-			Dispatch:      &srv.Dispatch,
+			dispatcher:    &srv.dispatcher,
 		}
 		conn.SetDeadline(time.Now().Add(conn.IdleTimeout))
 		log.Printf("+++ accepted connection from %v\n", conn.RemoteAddr())
@@ -72,7 +96,30 @@ func (srv Server) ListenAndServe() error {
 	}
 }
 
+func lSplit(data []byte, atEOF bool) (advance int, token []byte, err error) {
+	if atEOF && len(data) == 0 {
+		return 0, nil, nil
+	}
+
+	for j := range data {
+		if bytes.Equal(data[j:j+18], []byte(endToken)) {
+			fmt.Println(data[0:j])
+		}
+	}
+
+	if i := bytes.IndexByte(data, '\n'); i >= 0 {
+		return i + 1, data[0:i], nil
+	}
+
+	if atEOF {
+		return len(data), data, nil
+	}
+
+	return 0, nil, nil
+}
+
 func handle(conn *Conn) error {
+	// parse message, add record to dispatcher if not already there, check for receiver and send it to him
 	defer func() {
 		log.Printf("~ closing connection from %v\n", conn.RemoteAddr())
 		conn.Close()
@@ -82,6 +129,7 @@ func handle(conn *Conn) error {
 	w := bufio.NewWriter(conn)
 
 	scanr := bufio.NewScanner(r)
+	scanr.Split(lSplit)
 
 	for {
 		scanned := scanr.Scan()
