@@ -3,7 +3,6 @@ package lserver
 import (
 	"bufio"
 	"bytes"
-	"fmt"
 	"io"
 	"log"
 	"net"
@@ -13,8 +12,13 @@ import (
 
 const (
 	beginToken = "+++idspispopd_____"
-	endToken   = "_____idspispopd+++"
 )
+
+var serviceTokens = [...]string{
+	"2hGXENUIwShosts1D3Z0W7l5KV4FqgYo",
+	"oSeEtBW7MRsyncT4PD9Fg6idIbYXUfCn",
+	"aoZJnr4pSEpingqhL6Vvb0dgXFM1sWwY",
+}
 
 type Server struct {
 	Addr          string
@@ -101,18 +105,19 @@ func lSplit(data []byte, atEOF bool) (advance int, token []byte, err error) {
 		return 0, nil, nil
 	}
 
-	for j := range data {
-		if bytes.Equal(data[j:j+18], []byte(endToken)) {
-			fmt.Println(data[0:j])
-		}
-	}
+	var payloadSize = len(data)
 
-	if i := bytes.IndexByte(data, '\n'); i >= 0 {
-		return i + 1, data[0:i], nil
+	if payloadSize >= 50 {
+		for j := 0; j < payloadSize; j++ {
+			if bytes.Equal(data[j:j+18], []byte(beginToken)) {
+				return j + 1, data[j+18:], nil
+			}
+		}
+		return payloadSize, nil, nil
 	}
 
 	if atEOF {
-		return len(data), data, nil
+		return payloadSize, data, nil
 	}
 
 	return 0, nil, nil
