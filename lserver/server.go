@@ -31,7 +31,6 @@ type Conn struct {
 	net.Conn
 	IdleTimeout   time.Duration
 	MaxReadBuffer int64
-	dispatcher    *Dispatcher
 }
 
 func (c *Conn) Write(p []byte) (int, error) {
@@ -64,10 +63,12 @@ func NewLServer(t time.Duration, m int64) *Server {
 }
 
 func (srv Server) ListenAndServe() error {
+	guestBook := make(map[string]string)
 	router := make(map[string]*Conn)
 
 	dispatcher := Dispatcher{
-		Router: &router,
+		GuestBook: &guestBook,
+		Router:    &router,
 	}
 
 	srv.dispatcher = dispatcher
@@ -92,11 +93,10 @@ func (srv Server) ListenAndServe() error {
 			Conn:          newConn,
 			IdleTimeout:   srv.IdleTimeout,
 			MaxReadBuffer: srv.MaxReadBuffer,
-			dispatcher:    &srv.dispatcher,
 		}
 		conn.SetDeadline(time.Now().Add(conn.IdleTimeout))
 		log.Printf("+++ accepted connection from %v\n", conn.RemoteAddr())
-		go handle(conn)
+		go handle(conn, &srv.dispatcher)
 	}
 }
 
@@ -116,14 +116,10 @@ func lSplit(data []byte, atEOF bool) (advance int, token []byte, err error) {
 		return payloadSize, nil, nil
 	}
 
-	if atEOF {
-		return payloadSize, data, nil
-	}
-
 	return 0, nil, nil
 }
 
-func handle(conn *Conn) error {
+func handle(conn *Conn, dispatcher *Dispatcher) error {
 	// parse message, add record to dispatcher if not already there, check for receiver and send it to him
 	defer func() {
 		log.Printf("~ closing connection from %v\n", conn.RemoteAddr())
@@ -146,6 +142,8 @@ func handle(conn *Conn) error {
 			}
 			break
 		}
+
+		Dispatch(dispatcher, conn, scanr.Bytes())
 
 		w.WriteString(strings.ToUpper(scanr.Text()) + "\n")
 		w.Flush()

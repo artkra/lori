@@ -1,7 +1,13 @@
 package lserver
 
-// Dispatcher is a map, carrying info about routing (sender-receiver)
+// Dispatcher is a map, carrying info about routing
+// Router holds a map of type receiver - sender. We extract receiver address from message, find such key in Router
+// and write message into it's writer (conn.dispatcher.Router["somereceiver123"].Write(msg))
 type Dispatcher struct {
 	GuestBook *map[string]string
 	Router    *map[string]*Conn
+}
+
+func Dispatch(dispatcher *Dispatcher, conn *Conn, msg []byte) {
+
 }
