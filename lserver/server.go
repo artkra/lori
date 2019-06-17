@@ -24,7 +24,7 @@ type Server struct {
 	Addr          string
 	IdleTimeout   time.Duration
 	MaxReadBuffer int64
-	dispatcher    Dispatcher
+	dispatcher    *Dispatcher
 }
 
 type Conn struct {
@@ -50,19 +50,6 @@ func (c *Conn) UpdateDeadline() {
 }
 
 func NewLServer(t time.Duration, m int64) *Server {
-	router := make(map[string]*Conn)
-	dispatcher := Dispatcher{
-		Router: &router,
-	}
-	return &Server{
-		Addr:          ":15070",
-		IdleTimeout:   t * time.Second,
-		MaxReadBuffer: m,
-		dispatcher:    dispatcher,
-	}
-}
-
-func (srv Server) ListenAndServe() error {
 	guestBook := make(map[string]string)
 	router := make(map[string]*Conn)
 
@@ -70,9 +57,15 @@ func (srv Server) ListenAndServe() error {
 		GuestBook: &guestBook,
 		Router:    &router,
 	}
+	return &Server{
+		Addr:          ":15070",
+		IdleTimeout:   t * time.Second,
+		MaxReadBuffer: m,
+		dispatcher:    &dispatcher,
+	}
+}
 
-	srv.dispatcher = dispatcher
-
+func (srv Server) ListenAndServe() error {
 	addr := srv.Addr
 
 	log.Printf("Starting server on %v\n", addr)
@@ -96,7 +89,7 @@ func (srv Server) ListenAndServe() error {
 		}
 		conn.SetDeadline(time.Now().Add(conn.IdleTimeout))
 		log.Printf("+++ accepted connection from %v\n", conn.RemoteAddr())
-		go handle(conn, &srv.dispatcher)
+		go handle(conn, srv.dispatcher)
 	}
 }
 
